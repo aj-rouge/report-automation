@@ -1,0 +1,86 @@
+name: Stock Report Automation
+
+on:
+  schedule:
+    # Every Friday at 10:30 and 11:30 UTC – one of them will be 11:30 UK time
+    - cron: "30 10 * * 5"
+    - cron: "30 11 * * 5"
+    # Last day detection (28th-31st) at both 10:30 and 11:30 UTC
+    - cron: "30 10 28-31 * *"
+    - cron: "30 11 28-31 * *"
+  workflow_dispatch:
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine if we should run (UK time check)
+        id: should-run
+        run: |
+          # Get current UK time (using Europe/London timezone)
+          UK_HOUR=$(TZ="Europe/London" date +%H)
+          UK_MINUTE=$(TZ="Europe/London" date +%M)
+          UK_DAY_OF_WEEK=$(TZ="Europe/London" date +%u)  # 5 = Friday
+          TOMORROW=$(TZ="Europe/London" date -d "+1 day" +%d)
+
+          echo "UK time: $UK_HOUR:$UK_MINUTE, day of week: $UK_DAY_OF_WEEK"
+          echo "Tomorrow's day: $TOMORROW"
+
+          # Check if it's 11:30 AM UK time
+          if [ "$UK_HOUR" = "11" ] && [ "$UK_MINUTE" -ge "30" ] && [ "$UK_MINUTE" -lt "31" ]; then
+            TIME_OK=true
+          else
+            TIME_OK=false
+          fi
+
+          # Check if it's Friday OR the last day of the month
+          if [ "$UK_DAY_OF_WEEK" = "5" ] || [ "$TOMORROW" = "01" ]; then
+            DAY_OK=true
+          else
+            DAY_OK=false
+          fi
+
+          if [ "$TIME_OK" = "true" ] && [ "$DAY_OK" = "true" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ 11:30 AM UK time on a Friday or last day – running report"
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "⏭️ Not 11:30 UK time or not a valid day – skipping"
+          fi
+
+      - name: Run stock report
+        if: steps.should-run.outputs.should_run == 'true'
+        run: npm start
+        env:
+          BASELINKER_API_KEY: ${{ secrets.BASELINKER_API_KEY }}
+          TENANT_ID: ${{ secrets.TENANT_ID }}
+          CLIENT_ID: ${{ secrets.CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
+          SITE_ID: ${{ secrets.SITE_ID }}
+          SITE_NAME: ${{ secrets.SITE_NAME }}
+          CUSTOMER_DATA_FOLDER: ${{ secrets.CUSTOMER_DATA_FOLDER }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+          ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+
+      - name: Notify on failure
+        if: failure() && steps.should-run.outputs.should_run == 'true'
+        run: |
+          echo "❌ Stock report job failed. Check logs above."
