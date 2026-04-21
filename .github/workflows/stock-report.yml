@@ -2,12 +2,12 @@ name: Stock Report Automation
 
 on:
   schedule:
-    # Every Friday at 10:30 and 11:30 UTC – one of them will be 11:30 UK time
+    # Friday 11:30 AM UK time – run at 10:30 & 11:30 UTC (one will be correct)
     - cron: "30 10 * * 5"
     - cron: "30 11 * * 5"
-    # Last day detection (28th-31st) at both 10:30 and 11:30 UTC
-    - cron: "30 10 28-31 * *"
-    - cron: "30 11 28-31 * *"
+    # Last day of month at midnight UK time – run at 23:00 & 00:00 UTC on 28-31
+    - cron: "0 23 28-31 * *"
+    - cron: "0 0 28-31 * *"
   workflow_dispatch:
 
 jobs:
@@ -38,7 +38,7 @@ jobs:
             exit 0
           fi
 
-          # Get current UK time (using Europe/London timezone)
+          # Get current UK time
           UK_HOUR=$(TZ="Europe/London" date +%H)
           UK_MINUTE=$(TZ="Europe/London" date +%M)
           UK_DAY_OF_WEEK=$(TZ="Europe/London" date +%u)  # 5 = Friday
@@ -47,26 +47,28 @@ jobs:
           echo "UK time: $UK_HOUR:$UK_MINUTE, day of week: $UK_DAY_OF_WEEK"
           echo "Tomorrow's day: $TOMORROW"
 
-          # Check if it's 11:30 AM UK time
+          # Allowed times: 11:30 AM OR midnight (00:00)
+          TIME_OK=false
           if [ "$UK_HOUR" = "11" ] && [ "$UK_MINUTE" -ge "30" ] && [ "$UK_MINUTE" -lt "31" ]; then
             TIME_OK=true
-          else
-            TIME_OK=false
+            echo "Time matches 11:30 AM UK"
+          elif [ "$UK_HOUR" = "00" ] && [ "$UK_MINUTE" = "00" ]; then
+            TIME_OK=true
+            echo "Time matches midnight UK"
           fi
 
-          # Check if it's Friday OR the last day of the month
+          # Day condition: Friday OR last day of month
+          DAY_OK=false
           if [ "$UK_DAY_OF_WEEK" = "5" ] || [ "$TOMORROW" = "01" ]; then
             DAY_OK=true
-          else
-            DAY_OK=false
           fi
 
           if [ "$TIME_OK" = "true" ] && [ "$DAY_OK" = "true" ]; then
             echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "✅ 11:30 AM UK time on a Friday or last day – running report"
+            echo "✅ Valid time and day – running report"
           else
             echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Not 11:30 UK time or not a valid day – skipping"
+            echo "⏭️ Not a scheduled time/day – skipping"
           fi
 
       - name: Run stock report
