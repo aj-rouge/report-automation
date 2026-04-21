@@ -31,6 +31,13 @@ jobs:
       - name: Determine if we should run (UK time check)
         id: should-run
         run: |
+          # If manually triggered, always run
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            echo "✅ Manual trigger – running report"
+            exit 0
+          fi
+
           # Get current UK time (using Europe/London timezone)
           UK_HOUR=$(TZ="Europe/London" date +%H)
           UK_MINUTE=$(TZ="Europe/London" date +%M)
