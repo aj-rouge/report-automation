@@ -2,10 +2,10 @@ name: Stock Report Automation
 
 on:
   schedule:
-    # Friday 11:30 AM UK time – run at 10:30 & 11:30 UTC (one will be correct)
+    # UK 11:30 every Friday (UTC+1 in summer, UTC+0 in winter)
     - cron: "30 10 * * 5"
     - cron: "30 11 * * 5"
-    # Last day of month at midnight UK time – run at 23:00 & 00:00 UTC on 28-31
+    # UK 24:00 every last day of month (sharp)
     - cron: "0 23 28-31 * *"
     - cron: "0 0 28-31 * *"
   workflow_dispatch:
@@ -14,20 +14,16 @@ jobs:
   generate-report:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-
       - name: Install dependencies
         run: npm ci
-
       - name: Determine if we should run (UK time check)
         id: should-run
         run: |
@@ -47,11 +43,11 @@ jobs:
           echo "UK time: $UK_HOUR:$UK_MINUTE, day of week: $UK_DAY_OF_WEEK"
           echo "Tomorrow's day: $TOMORROW"
 
-          # Allowed times: 11:30 AM OR midnight (00:00)
+          # Allowed times: 11:30 AM - 11:40 AM OR midnight (00:00)
           TIME_OK=false
-          if [ "$UK_HOUR" = "11" ] && [ "$UK_MINUTE" -ge "30" ] && [ "$UK_MINUTE" -lt "31" ]; then
+          if [ "$UK_HOUR" = "11" ] && [ "$UK_MINUTE" -ge "30" ] && [ "$UK_MINUTE" -lt "41" ]; then
             TIME_OK=true
-            echo "Time matches 11:30 AM UK"
+            echo "Time matches 11:30-11:40 AM UK"
           elif [ "$UK_HOUR" = "00" ] && [ "$UK_MINUTE" = "00" ]; then
             TIME_OK=true
             echo "Time matches midnight UK"
@@ -70,7 +66,6 @@ jobs:
             echo "should_run=false" >> $GITHUB_OUTPUT
             echo "⏭️ Not a scheduled time/day – skipping"
           fi
-
       - name: Run stock report
         if: steps.should-run.outputs.should_run == 'true'
         run: npm start
@@ -88,7 +83,6 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-
       - name: Notify on failure
         if: failure() && steps.should-run.outputs.should_run == 'true'
         run: |
