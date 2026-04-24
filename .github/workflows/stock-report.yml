@@ -1,14 +1,12 @@
 name: Stock Report Automation
 
 on:
-  schedule:
-    # UK 11:30 every Friday (UTC+1 in summer, UTC+0 in winter)
-    - cron: "30 10 * * 5"
-    - cron: "30 11 * * 5"
-    # UK 24:00 every last day of month (sharp)
-    - cron: "0 23 28-31 * *"
-    - cron: "0 0 28-31 * *"
-  workflow_dispatch:
+  workflow_dispatch: # Called by external cron service
+    inputs:
+      force:
+        description: "Force run (ignore date/time checks)"
+        required: false
+        default: "false"
 
 jobs:
   generate-report:
@@ -24,50 +22,7 @@ jobs:
           cache: "npm"
       - name: Install dependencies
         run: npm ci
-      - name: Determine if we should run (UK time check)
-        id: should-run
-        run: |
-          # If manually triggered, always run
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "✅ Manual trigger – running report"
-            exit 0
-          fi
-
-          # Get current UK time
-          UK_HOUR=$(TZ="Europe/London" date +%H)
-          UK_MINUTE=$(TZ="Europe/London" date +%M)
-          UK_DAY_OF_WEEK=$(TZ="Europe/London" date +%u)  # 5 = Friday
-          TOMORROW=$(TZ="Europe/London" date -d "+1 day" +%d)
-
-          echo "UK time: $UK_HOUR:$UK_MINUTE, day of week: $UK_DAY_OF_WEEK"
-          echo "Tomorrow's day: $TOMORROW"
-
-          # Allowed times: 11:30 AM - 11:40 AM OR midnight (00:00)
-          TIME_OK=false
-          if [ "$UK_HOUR" = "11" ] && [ "$UK_MINUTE" -ge "30" ] && [ "$UK_MINUTE" -lt "41" ]; then
-            TIME_OK=true
-            echo "Time matches 11:30-11:40 AM UK"
-          elif [ "$UK_HOUR" = "00" ] && [ "$UK_MINUTE" = "00" ]; then
-            TIME_OK=true
-            echo "Time matches midnight UK"
-          fi
-
-          # Day condition: Friday OR last day of month
-          DAY_OK=false
-          if [ "$UK_DAY_OF_WEEK" = "5" ] || [ "$TOMORROW" = "01" ]; then
-            DAY_OK=true
-          fi
-
-          if [ "$TIME_OK" = "true" ] && [ "$DAY_OK" = "true" ]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            echo "✅ Valid time and day – running report"
-          else
-            echo "should_run=false" >> $GITHUB_OUTPUT
-            echo "⏭️ Not a scheduled time/day – skipping"
-          fi
       - name: Run stock report
-        if: steps.should-run.outputs.should_run == 'true'
         run: npm start
         env:
           BASELINKER_API_KEY: ${{ secrets.BASELINKER_API_KEY }}
@@ -83,7 +38,7 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          FORCE_REPORT: ${{ github.event.inputs.force }}
       - name: Notify on failure
-        if: failure() && steps.should-run.outputs.should_run == 'true'
-        run: |
-          echo "❌ Stock report job failed. Check logs above."
+        if: failure()
+        run: echo "❌ Stock report job failed. Check logs above."

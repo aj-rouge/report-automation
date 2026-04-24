@@ -4,10 +4,69 @@ import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { sendAlert } from "./utils/alert.js";
 
+/**
+ * Returns true if we should generate the report based on current UK time.
+ * Rules:
+ * - Friday 11:30 – 11:40
+ * - Monday 00:00 – 00:05  (Sunday midnight report)
+ * - Last day of month 00:00 – 00:10
+ *
+ * Manual override via FORCE_REPORT=true environment variable.
+ */
+function shouldGenerateReport() {
+  // Force override (e.g., via workflow_dispatch input)
+  if (process.env.FORCE_REPORT === "true") {
+    logger.info("FORCE_REPORT=true – overriding date/time checks");
+    return true;
+  }
+
+  const now = new Date();
+  const ukTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "Europe/London" }),
+  );
+  const hour = ukTime.getHours();
+  const minute = ukTime.getMinutes();
+  const dayOfWeek = ukTime.getDay(); // 0 = Sunday, 1 = Monday, 5 = Friday
+  const isLastDayOfMonth =
+    new Date(ukTime.getFullYear(), ukTime.getMonth() + 1, 0).getDate() ===
+    ukTime.getDate();
+
+  // Friday 11:30 – 11:40
+  if (dayOfWeek === 5 && hour === 11 && minute >= 30 && minute <= 40) {
+    logger.info("Friday 11:30-11:40 UK time – running report");
+    return true;
+  }
+
+  // Monday 00:00 – 00:05 (Sunday midnight report)
+  if (dayOfWeek === 1 && hour === 0 && minute <= 5) {
+    logger.info("Monday 00:00-00:05 UK time – running Sunday midnight report");
+    return true;
+  }
+
+  // Last day of month 00:00 – 00:10
+  if (isLastDayOfMonth && hour === 0 && minute <= 10) {
+    logger.info(
+      "Last day of month 00:00-00:10 UK time – running end-of-month report",
+    );
+    return true;
+  }
+
+  logger.info(
+    { hour, minute, dayOfWeek, isLastDayOfMonth },
+    "Not a scheduled time – exiting without generating report",
+  );
+  return false;
+}
+
 (async () => {
   const startTime = Date.now();
   try {
-    logger.info("Starting stock report job");
+    logger.info("Stock report job triggered");
+
+    if (!shouldGenerateReport()) {
+      logger.info("Graceful exit – no report needed");
+      return;
+    }
 
     // Generate the report buffer
     const buffer = await generateStockReport();
