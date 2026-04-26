@@ -73,6 +73,19 @@ function flattenProductsToRows(
   return rows;
 }
 
+// Add this helper before createRow
+function getProductName(item, fallbackId = null) {
+  // Try common top-level fields
+  let name = item.name ?? item.product_name ?? item.title;
+  // If not found, look inside text_fields
+  if (!name && item.text_fields && typeof item.text_fields === "object") {
+    name = item.text_fields.name;
+  }
+  // Return first non-empty string
+  if (name && name !== "") return name;
+  return "—";
+}
+
 function createRow(
   item,
   parentId,
@@ -85,6 +98,8 @@ function createRow(
   const productId = forcedId || item.product_id;
   const stock = item.stock || {};
   const prices = item.prices || {};
+
+  const productName = getProductName(item, productId);
 
   // Warehouse stock
   const warehouseStock = {};
@@ -110,7 +125,7 @@ function createRow(
   return {
     product_id: productId,
     parent_id: parentId || "—",
-    name: item.name || "—",
+    name: productName,
     ean: item.ean || "—",
     sku: item.sku || "—",
     location: locationMap[productId] || "—",
