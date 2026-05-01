@@ -3,13 +3,13 @@ import { uploadToSharePoint } from "./services/sharepoint.js";
 import { config } from "./config.js";
 import { logger } from "./utils/logger.js";
 import { sendAlert } from "./utils/alert.js";
-
 /**
- * Returns true if we should generate the report based on current UK time.
+ * Returns true if we should generate the report based on current time.
  * Rules:
- * - Friday 11:30 – 11:40
- * - Monday 00:00 – 00:05  (Sunday midnight report)
- * - Last day of month 00:00 – 00:10
+ * - Daily at 10:30 Warsaw time (CET/CEST) – NEW
+ * - Friday 11:30 – 11:40 UK time
+ * - Monday 00:00 – 00:05 UK time (Sunday midnight report)
+ * - Last day of month 00:00 – 00:10 UK time
  *
  * Manual override via FORCE_REPORT=true environment variable.
  */
@@ -21,6 +21,19 @@ function shouldGenerateReport() {
   }
 
   const now = new Date();
+
+  // --- Warsaw time (10:30 daily) ---
+  const warsawTime = new Date(
+    now.toLocaleString("en-US", { timeZone: "Europe/Warsaw" }),
+  );
+  const warsawHour = warsawTime.getHours();
+  const warsawMinute = warsawTime.getMinutes();
+  if (warsawHour === 10 && warsawMinute >= 30 && warsawMinute <= 35) {
+    logger.info("Daily 10:30 Warsaw time – running report");
+    return true;
+  }
+
+  // --- UK time for legacy schedules ---
   const ukTime = new Date(
     now.toLocaleString("en-US", { timeZone: "Europe/London" }),
   );
@@ -52,7 +65,7 @@ function shouldGenerateReport() {
   }
 
   logger.info(
-    { hour, minute, dayOfWeek, isLastDayOfMonth },
+    { warsawHour, warsawMinute, hour, minute, dayOfWeek, isLastDayOfMonth },
     "Not a scheduled time – exiting without generating report",
   );
   return false;
