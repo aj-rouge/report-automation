@@ -101,7 +101,7 @@ function createRow(
 
   const productName = getProductName(item, productId);
 
-  // Warehouse stock
+  // Warehouse stock for every warehouse
   const warehouseStock = {};
   for (const wh of warehouses) {
     const key = `${wh.warehouse_type}_${wh.warehouse_id}`;
@@ -109,6 +109,14 @@ function createRow(
       stock[key] ?? stock[wh.warehouse_id] ?? 0,
     );
   }
+
+  // Specific warehouse quantities for JASMIN
+  const getWhQty = (whId) => warehouseStock[whId] || 0;
+  const whWarehouse = getWhQty(21879); // Warehouse (bl_21879)
+  const whOffice = getWhQty(31472); // Office (bl_31472)
+  const whLoadingBay = getWhQty(27316); // Loading Bay (bl_27316)
+  const whRtBytes = getWhQty(19407); // RT Bytes (fulfillment_19407)
+  const whOutside = getWhQty(42297); // Outside (bl_42297)
 
   // Prices for each price group
   const priceValues = {};
@@ -122,6 +130,9 @@ function createRow(
   const totalStock = Object.values(warehouseStock).reduce((a, b) => a + b, 0);
   const actualStock = totalStock + reserved;
 
+  // JASMIN specific actual stock (only Warehouse + Office + reserved)
+  const jasminActualStock = whWarehouse + whOffice + reserved;
+
   return {
     product_id: productId,
     parent_id: parentId || "—",
@@ -132,7 +143,18 @@ function createRow(
     ...warehouseStock,
     ...priceValues,
     reserved,
-    actual_stock: actualStock,
+    actual_stock: actualStock, // old total (all warehouses)
+    jasmin_actual_stock: jasminActualStock,
+    // Additional fields for the extra columns
+    jasmin_count: "", // placeholder
+    match: "", // placeholder
+    loading_bay_stock: whLoadingBay,
+    rt_bytes_stock: whRtBytes,
+    outside_stock: whOutside,
+    jasmin_comments1: "",
+    jasmin_comments2: "",
+    aj_comments1: "",
+    aj_comments2: "",
   };
 }
 
@@ -174,11 +196,11 @@ export async function generateStockReport() {
   );
   if (!rows.length) throw new Error("No rows to export");
 
-  // Filter out products with zero actual stock
-  let filteredRows = rows.filter((row) => row.actual_stock !== 0);
+  // Filter out products with zero JASMIN actual stock (Warehouse+Office+reserved)
+  let filteredRows = rows.filter((row) => row.jasmin_actual_stock !== 0);
   logger.info(
     { beforeFilter: rows.length, afterFilter: filteredRows.length },
-    "Filtered out zero actual stock products",
+    "Filtered out zero JASMIN actual stock products",
   );
 
   // Sort by location (alphabetical, case-insensitive), then by name
@@ -202,7 +224,7 @@ export async function generateStockReport() {
     "Final rows after filter and sort",
   );
 
-  // Build headers including extra comment columns at the end
+  // Build headers – keep existing columns up to "Reserved (orders)"
   const headers = [
     "Product ID",
     "Parent ID",
@@ -213,12 +235,16 @@ export async function generateStockReport() {
     ...priceGroups.map((pg) => `${pg.name} Price (${pg.currency})`),
     ...warehouses.map((wh) => `${wh.name} (stock)`),
     "Reserved (orders)",
-    "Actual Stock",
+    "Total Actual Stock (Warehouse+Office+Reserved)",
   ];
 
+  // Extra columns after the main actual stock
   const extraColumns = [
     "Jasmin count",
     "Match",
+    "Loading Bay",
+    "RT Bytes (FBA)",
+    "Outside",
     "Jasmin Comments #1",
     "Jasmin Comments #2",
     "AJ Comments #1",
@@ -250,17 +276,24 @@ export async function generateStockReport() {
       rowData[`${wh.name} (stock)`] = row[wh.warehouse_id];
     }
     rowData["Reserved (orders)"] = row.reserved;
-    rowData["Actual Stock"] = row.actual_stock;
-    // Add empty values for extra columns
-    for (const extra of extraColumns) {
-      rowData[extra] = "";
-    }
+    rowData["Total Actual Stock (Warehouse+Office+Reserved)"] =
+      row.jasmin_actual_stock;
+    // Add extra columns
+    rowData["Jasmin count"] = row.jasmin_count;
+    rowData["Match"] = row.match;
+    rowData["Loading Bay"] = row.loading_bay_stock;
+    rowData["RT Bytes (FBA)"] = row.rt_bytes_stock;
+    rowData["Outside"] = row.outside_stock;
+    rowData["Jasmin Comments #1"] = row.jasmin_comments1;
+    rowData["Jasmin Comments #2"] = row.jasmin_comments2;
+    rowData["AJ Comments #1"] = row.aj_comments1;
+    rowData["AJ Comments #2"] = row.aj_comments2;
     sheet.addRow(rowData);
   }
 
   styleRows(sheet);
 
-  // Table rows for Excel table – include empty strings for extra columns
+  // Table rows for Excel table – includes all extra columns (empty strings where needed)
   const tableRows = filteredRows.map((r) => [
     r.product_id,
     r.parent_id,
@@ -271,19 +304,22 @@ export async function generateStockReport() {
     ...priceGroups.map((pg) => r[pg.price_group_id]),
     ...warehouses.map((wh) => r[wh.warehouse_id]),
     r.reserved,
-    r.actual_stock,
-    "",
-    "",
-    "",
-    "",
-    "",
-    "", // six empty strings for the extra columns
+    r.jasmin_actual_stock,
+    r.jasmin_count,
+    r.match,
+    r.loading_bay_stock,
+    r.rt_bytes_stock,
+    r.outside_stock,
+    r.jasmin_comments1,
+    r.jasmin_comments2,
+    r.aj_comments1,
+    r.aj_comments2,
   ]);
   addTable(sheet, headers, tableRows, { name: "StockTable" });
 
   const buffer = await workbook.xlsx.writeBuffer();
   logger.info(
-    `Stock report generated with ${filteredRows.length} rows (filtered & sorted) with comment columns added`,
+    `Stock report generated with ${filteredRows.length} rows (filtered & sorted) with JASMIN columns`,
   );
   return buffer;
 }
