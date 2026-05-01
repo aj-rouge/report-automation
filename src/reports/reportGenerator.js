@@ -224,7 +224,12 @@ export async function generateStockReport() {
     "Final rows after filter and sort",
   );
 
-  // Build headers – keep existing columns up to "Reserved (orders)"
+  // --- ONLY Warehouse and Office in the main stock columns ---
+  const jasminWarehouses = warehouses.filter(
+    (wh) => wh.warehouse_id === 21879 || wh.warehouse_id === 31472,
+  );
+
+  // Build headers – main columns up to "Reserved (orders)"
   const headers = [
     "Product ID",
     "Parent ID",
@@ -233,7 +238,7 @@ export async function generateStockReport() {
     "SKU",
     "Location(s)",
     ...priceGroups.map((pg) => `${pg.name} Price (${pg.currency})`),
-    ...warehouses.map((wh) => `${wh.name} (stock)`),
+    ...jasminWarehouses.map((wh) => `${wh.name} (stock)`),
     "Reserved (orders)",
     "Total Actual Stock (Warehouse+Office+Reserved)",
   ];
@@ -269,16 +274,22 @@ export async function generateStockReport() {
     rowData["EAN"] = row.ean;
     rowData["SKU"] = row.sku;
     rowData["Location(s)"] = row.location;
+
+    // Price groups
     for (const pg of priceGroups) {
       rowData[`${pg.name} Price (${pg.currency})`] = row[pg.price_group_id];
     }
-    for (const wh of warehouses) {
+
+    // Only Warehouse and Office stock columns
+    for (const wh of jasminWarehouses) {
       rowData[`${wh.name} (stock)`] = row[wh.warehouse_id];
     }
+
     rowData["Reserved (orders)"] = row.reserved;
     rowData["Total Actual Stock (Warehouse+Office+Reserved)"] =
       row.jasmin_actual_stock;
-    // Add extra columns
+
+    // Extra columns (using pre‑computed values from createRow)
     rowData["Jasmin count"] = row.jasmin_count;
     rowData["Match"] = row.match;
     rowData["Loading Bay"] = row.loading_bay_stock;
@@ -288,12 +299,13 @@ export async function generateStockReport() {
     rowData["Jasmin Comments #2"] = row.jasmin_comments2;
     rowData["AJ Comments #1"] = row.aj_comments1;
     rowData["AJ Comments #2"] = row.aj_comments2;
+
     sheet.addRow(rowData);
   }
 
   styleRows(sheet);
 
-  // Table rows for Excel table – includes all extra columns (empty strings where needed)
+  // Table rows – must match the exact order of headers
   const tableRows = filteredRows.map((r) => [
     r.product_id,
     r.parent_id,
@@ -302,7 +314,7 @@ export async function generateStockReport() {
     r.sku,
     r.location,
     ...priceGroups.map((pg) => r[pg.price_group_id]),
-    ...warehouses.map((wh) => r[wh.warehouse_id]),
+    ...jasminWarehouses.map((wh) => r[wh.warehouse_id]),
     r.reserved,
     r.jasmin_actual_stock,
     r.jasmin_count,
@@ -319,7 +331,7 @@ export async function generateStockReport() {
 
   const buffer = await workbook.xlsx.writeBuffer();
   logger.info(
-    `Stock report generated with ${filteredRows.length} rows (filtered & sorted) with JASMIN columns`,
+    `Stock report generated with ${filteredRows.length} rows – only Warehouse & Office in main stock columns, others as separate columns`,
   );
   return buffer;
 }
